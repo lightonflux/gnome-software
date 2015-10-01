@@ -27,6 +27,44 @@
 #include <gtk/gtk.h>
 
 #include "gs-moduleset.h"
+#include "gs-html-utils.h"
+
+static void
+html_utils_func (void)
+{
+	const gchar *input;
+	g_autofree gchar *out_complex = NULL;
+	g_autofree gchar *out_list = NULL;
+	g_autofree gchar *out_simple = NULL;
+	g_autoptr(GError) error = NULL;
+
+	/* simple, from meta */
+	input = "This game is simply awesome&trade; in every way!";
+	out_simple = gs_html_utils_parse_description (input, &error);
+	g_assert_no_error (error);
+	g_assert_cmpstr (out_simple, ==, "<p>This game is simply awesome™ in every way!</p>");
+
+	/* complex non-compliant HTML, from div */
+	input = "  <h1>header</h1>"
+		"  <p>First line of the <i>description</i> is okay...</p>"
+		"  <img src=\"moo.png\">"
+		"  <img src=\"png\">"
+		"  <p>Second <strong>line</strong> is <a href=\"#moo\">even</a> better!</p>";
+	out_complex = gs_html_utils_parse_description (input, &error);
+	g_print ("\n\n%s\n\n", out_complex);
+	g_assert_no_error (error);
+	g_assert_cmpstr (out_complex, ==, "<p>First line of the description is okay...</p>"
+					  "<p>Second line is even better!</p>");
+
+	/* complex list */
+	input = "  <ul>"
+		"  <li>First line of the list</li>"
+		"  <li>Second line of the list</li>"
+		"  </ul>";
+	out_list = gs_html_utils_parse_description (input, &error);
+	g_assert_no_error (error);
+	g_assert_cmpstr (out_list, ==, "<ul><li>First line of the list</li><li>Second line of the list</li></ul>");
+}
 
 static void
 moduleset_func (void)
@@ -76,6 +114,7 @@ main (int argc, char **argv)
 
 	/* tests go here */
 	g_test_add_func ("/moduleset", moduleset_func);
+	g_test_add_func ("/html-utils", html_utils_func);
 
 	return g_test_run ();
 }

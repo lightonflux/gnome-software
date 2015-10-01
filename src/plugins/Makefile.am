@@ -180,6 +180,7 @@ check_PROGRAMS =					\
 	gs-self-test
 
 gs_self_test_SOURCES =					\
+	gs-html-utils.c					\
 	gs-moduleset.c					\
 	gs-self-test.c
 
