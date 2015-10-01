@@ -28,6 +28,7 @@ noinst_LTLIBRARIES =					\
 
 plugindir = $(libdir)/gs-plugins-${GS_PLUGIN_API_VERSION}
 plugin_LTLIBRARIES =					\
+	libgs_plugin_steam.la			\
 	libgs_plugin_appstream.la			\
 	libgs_plugin_hardcoded-featured.la		\
 	libgs_plugin_moduleset.la			\
@@ -57,6 +58,14 @@ libgs_plugin_dummy_la_SOURCES = gs-plugin-dummy.c
 libgs_plugin_dummy_la_LIBADD = $(GS_PLUGIN_LIBS)
 libgs_plugin_dummy_la_LDFLAGS = -module -avoid-version
 libgs_plugin_dummy_la_CFLAGS = $(GS_PLUGIN_CFLAGS) $(WARN_CFLAGS)
+
+libgs_plugin_steam_la_SOURCES =				\
+	gs-html-utils.c					\
+	gs-html-utils.h					\
+	gs-plugin-steam.c
+libgs_plugin_steam_la_LIBADD = $(GS_PLUGIN_LIBS)
+libgs_plugin_steam_la_LDFLAGS = -module -avoid-version
+libgs_plugin_steam_la_CFLAGS = $(GS_PLUGIN_CFLAGS) $(WARN_CFLAGS)
 
 libgs_plugin_fedora_tagger_ratings_la_SOURCES = gs-plugin-fedora-tagger-ratings.c
 libgs_plugin_fedora_tagger_ratings_la_LIBADD = $(GS_PLUGIN_LIBS) $(SOUP_LIBS) $(SQLITE_LIBS)
