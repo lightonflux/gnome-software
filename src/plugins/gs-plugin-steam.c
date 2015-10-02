@@ -859,6 +859,78 @@ gs_plugin_refresh (GsPlugin *plugin,
 }
 
 /**
+ * gs_plugin_steam_load_app_manifest:
+ */
+static GHashTable *
+gs_plugin_steam_load_app_manifest (const gchar *fn, GError **error)
+{
+	GHashTable *manifest = NULL;
+	guint i;
+	guint j;
+	g_autofree gchar *data = NULL;
+	g_auto(GStrv) lines = NULL;
+
+	/* get file */
+	if (!g_file_get_contents (fn, &data, NULL, error))
+		return NULL;
+
+	/* parse each line */
+	manifest = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+	lines = g_strsplit (data, "\n", -1);
+	for (i = 0; lines[i] != NULL; i++) {
+		gboolean is_key = TRUE;
+		const gchar *tmp = lines[i];
+		g_autoptr(GString) key = g_string_new ("");
+		g_autoptr(GString) value = g_string_new ("");
+		for (j = 0; tmp[j] != '\0'; j++) {
+
+			/* alphanum, so either key or value */
+			if (g_ascii_isalnum (tmp[j])) {
+				g_string_append_c (is_key ? key : value, tmp[j]);
+				continue;
+			}
+
+			/* first whitespace after the key */
+			if (g_ascii_isspace (tmp[j]) && key->len > 0)
+				is_key = FALSE;
+		}
+		if (g_getenv ("GS_PLUGIN_STEAM_DEBUG") != NULL)
+			g_debug ("manifest %s=%s", key->str, value->str);
+		if (key->len == 0 || value->len == 0)
+			continue;
+		g_hash_table_insert (manifest, g_strdup (key->str), g_strdup (value->str));
+	}
+	return manifest;
+}
+
+typedef enum {
+	GS_STEAM_STATE_FLAG_INVALID		= 0,
+	GS_STEAM_STATE_FLAG_UNINSTALLED		= 1 << 0,
+	GS_STEAM_STATE_FLAG_UPDATE_REQUIRED	= 1 << 1,
+	GS_STEAM_STATE_FLAG_FULLY_INSTALLED	= 1 << 2,
+	GS_STEAM_STATE_FLAG_ENCRYPTED		= 1 << 3,
+	GS_STEAM_STATE_FLAG_LOCKED		= 1 << 4,
+	GS_STEAM_STATE_FLAG_FILES_MISSING	= 1 << 5,
+	GS_STEAM_STATE_FLAG_APP_RUNNING		= 1 << 6,
+	GS_STEAM_STATE_FLAG_FILES_CORRUPT	= 1 << 7,
+	GS_STEAM_STATE_FLAG_UPDATE_RUNNING	= 1 << 8,
+	GS_STEAM_STATE_FLAG_UPDATE_PAUSED	= 1 << 9,
+	GS_STEAM_STATE_FLAG_UPDATE_STARTED	= 1 << 10,
+	GS_STEAM_STATE_FLAG_UNINSTALLING	= 1 << 11,
+	GS_STEAM_STATE_FLAG_BACKUP_RUNNING	= 1 << 12,
+	/* not sure what happened here... */
+	GS_STEAM_STATE_FLAG_RECONFIGURING	= 1 << 16,
+	GS_STEAM_STATE_FLAG_VALIDATING		= 1 << 17,
+	GS_STEAM_STATE_FLAG_ADDING_FILES	= 1 << 18,
+	GS_STEAM_STATE_FLAG_PREALLOCATING	= 1 << 19,
+	GS_STEAM_STATE_FLAG_DOWNLOADING		= 1 << 20,
+	GS_STEAM_STATE_FLAG_STAGING		= 1 << 21,
+	GS_STEAM_STATE_FLAG_COMMITTING		= 1 << 22,
+	GS_STEAM_STATE_FLAG_UPDATE_STOPPING	= 1 << 23,
+	GS_STEAM_STATE_FLAG_LAST
+} GsSteamStateFlags;
+
+/**
  * gs_plugin_steam_refine_app:
  */
 static gboolean
@@ -870,11 +942,17 @@ gs_plugin_steam_refine_app (GsPlugin *plugin,
 {
 	const gchar *gameid;
 	const gchar *tmp;
+	g_autofree gchar *manifest_basename = NULL;
+	g_autofree gchar *fn = NULL;
+	g_autoptr(GHashTable) manifest = NULL;
 
 	/* check is us */
 	gameid = gs_app_get_metadata_item (app, "X-Steam-GameID");
 	if (gameid == NULL)
 		return TRUE;
+
+	/* is this true? */
+	gs_app_set_id_kind (app, AS_ID_KIND_DESKTOP);
 
 	/* size */
 	tmp = gs_app_get_metadata_item (app, "X-Steam-Size");
@@ -885,8 +963,60 @@ gs_plugin_steam_refine_app (GsPlugin *plugin,
 			gs_app_set_size (app, sz);
 	}
 
-	/* FIXME */
-	gs_app_set_state (app, AS_APP_STATE_AVAILABLE);
+	/* check manifest */
+	manifest_basename = g_strdup_printf ("appmanifest_%s.acf", gameid);
+	fn = g_build_filename (g_get_user_data_dir (),
+			       "Steam",
+			       "steamapps",
+			       manifest_basename,
+			       NULL);
+	if (!g_file_test (fn, G_FILE_TEST_EXISTS)) {
+		/* can never have been installed */
+		gs_app_set_state (app, AS_APP_STATE_AVAILABLE);
+		return TRUE;
+	}
+	manifest = gs_plugin_steam_load_app_manifest (fn, error);
+	if (manifest == NULL)
+		return FALSE;
+
+	/* this is better than the download size */
+	tmp = g_hash_table_lookup (manifest, "SizeOnDisk");
+	if (tmp != NULL) {
+		guint64 sz;
+		sz = g_ascii_strtoull (tmp, NULL, 10);
+		if (sz > 0)
+			gs_app_set_size (app, sz);
+	}
+
+	/* set state */
+	tmp = g_hash_table_lookup (manifest, "StateFlags");
+	if (tmp != NULL) {
+		guint64 state_flags;
+
+		/* set state */
+		state_flags = g_ascii_strtoull (tmp, NULL, 10);
+		if (state_flags & GS_STEAM_STATE_FLAG_DOWNLOADING ||
+		    state_flags & GS_STEAM_STATE_FLAG_PREALLOCATING ||
+		    state_flags & GS_STEAM_STATE_FLAG_ADDING_FILES ||
+		    state_flags & GS_STEAM_STATE_FLAG_COMMITTING ||
+		    state_flags & GS_STEAM_STATE_FLAG_STAGING)
+			gs_app_set_state (app, AS_APP_STATE_INSTALLING);
+		else if (state_flags & GS_STEAM_STATE_FLAG_UNINSTALLING)
+			gs_app_set_state (app, AS_APP_STATE_REMOVING);
+		else if (state_flags & GS_STEAM_STATE_FLAG_FULLY_INSTALLED)
+			gs_app_set_state (app, AS_APP_STATE_INSTALLED);
+		else if (state_flags & GS_STEAM_STATE_FLAG_UNINSTALLED)
+			gs_app_set_state (app, AS_APP_STATE_AVAILABLE);
+	}
+
+	/* set install date */
+	tmp = g_hash_table_lookup (manifest, "LastUpdated");
+	if (tmp != NULL) {
+		guint64 ts;
+		ts = g_ascii_strtoull (tmp, NULL, 10);
+		if (ts > 0)
+			gs_app_set_install_date (app, ts);
+	}
 
 	return TRUE;
 }
