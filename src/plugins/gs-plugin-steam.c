@@ -545,10 +545,10 @@ gs_plugin_steam_new_pixbuf_from_icns (const gchar *fn, GError **error)
 }
 
 /**
- * gs_plugin_steam_download_icns:
+ * gs_plugin_steam_download_icon:
  **/
 static gboolean
-gs_plugin_steam_download_icns (GsPlugin *plugin, AsApp *app, const gchar *uri, GError **error)
+gs_plugin_steam_download_icon (GsPlugin *plugin, AsApp *app, const gchar *uri, GError **error)
 {
 	const gchar *gameid_str;
 	gsize data_len;
@@ -561,7 +561,7 @@ gs_plugin_steam_download_icns (GsPlugin *plugin, AsApp *app, const gchar *uri, G
 
 	/* download icons from the cdn */
 	gameid_str = as_app_get_metadata_item (app, "X-Steam-GameID");
-	cache_basename = g_strdup_printf ("%s-icons.icns", gameid_str);
+	cache_basename = g_path_get_basename (uri);
 	cache_fn = g_build_filename (g_get_user_cache_dir (),
 				     "gnome-software",
 				     "steam",
@@ -593,8 +593,20 @@ gs_plugin_steam_download_icns (GsPlugin *plugin, AsApp *app, const gchar *uri, G
 			return FALSE;
 	}
 
+	/* too small? */
+	if (gdk_pixbuf_get_width (pb) < 48 ||
+	    gdk_pixbuf_get_height (pb) < 48) {
+		g_set_error (error,
+			     GS_PLUGIN_ERROR,
+			     GS_PLUGIN_ERROR_FAILED,
+			     "icon is too small %ix%i",
+			     gdk_pixbuf_get_width (pb),
+			     gdk_pixbuf_get_height (pb));
+		return FALSE;
+	}
+
 	/* save to cache */
-	memcpy (cache_basename + strlen (gameid_str) + 6, ".png\0", 5);
+	memcpy (cache_basename + 40, ".png\0", 5);
 	cache_png = g_build_filename (g_get_user_cache_dir (),
 				      "gnome-software",
 				      "steam",
@@ -620,6 +632,7 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 				  GHashTable *app,
 				  GError **error)
 {
+	const gchar *name;
 	GVariant *tmp;
 	guint32 gameid;
 	gchar *app_id;
@@ -635,19 +648,26 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 	if (tmp == NULL)
 		return TRUE;
 	gameid = g_variant_get_uint32 (tmp);
-	app_id = g_strdup_printf ("com.valve.steam-%u.desktop", gameid);
-	g_debug ("processing %s", app_id);
+
+	/* valve use the name as the application ID, not the gameid */
+	tmp = g_hash_table_lookup (app, "name");
+	if (tmp == NULL)
+		return TRUE;
+	name = g_variant_get_string (tmp, NULL);
+	app_id = g_strdup_printf ("%s.desktop", name);
 
 	/* already exists */
 	if (as_store_get_app_by_id (store, app_id) != NULL) {
-		g_debug ("%s already exists, skipping", app_id);
+		g_debug ("already exists %i, skipping", gameid);
 		return TRUE;
 	}
 
 	/* create application with the gameid as the key */
+	g_debug ("parsing steam %i", gameid);
 	item = as_app_new ();
 	as_app_set_project_license (item, "Steam");
 	as_app_set_id (item, app_id);
+	as_app_set_name (item, NULL, name);
 	as_app_add_category (item, "Game");
 	as_app_add_kudo_kind (item, AS_KUDO_KIND_MODERN_TOOLKIT);
 	as_app_set_comment (item, NULL, "Available on Steam");
@@ -656,18 +676,9 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 	gameid_str = g_strdup_printf ("%" G_GUINT32_FORMAT, gameid);
 	as_app_add_metadata (item, "X-Steam-GameID", gameid_str);
 
-	/* name */
-	tmp = g_hash_table_lookup (app, "name");
-	if (tmp != NULL) {
-		const gchar *name = g_variant_get_string (tmp, NULL);
-		if (g_strstr_len (name, -1, "Dedicated Server") != NULL) {
-			as_app_add_veto (item, "Dedicated Server");
-		} else {
-			as_app_set_name (item, NULL, name);
-		}
-	} else {
-		as_app_add_veto (item, "No name");
-	}
+	/* ban certains apps based on the name */
+	if (g_strstr_len (name, -1, "Dedicated Server") != NULL)
+		as_app_add_veto (item, "Dedicated Server");
 
 	/* oslist */
 	tmp = g_hash_table_lookup (app, "oslist");
@@ -705,12 +716,27 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 	tmp = g_hash_table_lookup (app, "clienticns");
 	if (tmp != NULL) {
 		g_autoptr(GError) error_local = NULL;
-		g_autofree gchar *zip_uri = NULL;
-		zip_uri = g_strdup_printf ("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%i/%s.icns",
-					   gameid, g_variant_get_string (tmp, NULL));
-		if (!gs_plugin_steam_download_icns (plugin, item, zip_uri, &error_local)) {
+		g_autofree gchar *ic_uri = NULL;
+		ic_uri = g_strdup_printf ("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%i/%s.icns",
+					  gameid, g_variant_get_string (tmp, NULL));
+		if (!gs_plugin_steam_download_icon (plugin, item, ic_uri, &error_local)) {
 			g_warning ("Failed to parse clienticns: %s",
 				   error_local->message);
+		}
+	}
+
+	/* try clienticon */
+	if (as_app_get_icons(item)->len == 0) {
+		tmp = g_hash_table_lookup (app, "clienticon");
+		if (tmp != NULL) {
+			g_autoptr(GError) error_local = NULL;
+			g_autofree gchar *ic_uri = NULL;
+			ic_uri = g_strdup_printf ("http://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/%i/%s.ico",
+						  gameid, g_variant_get_string (tmp, NULL));
+			if (!gs_plugin_steam_download_icon (plugin, item, ic_uri, &error_local)) {
+				g_warning ("Failed to parse clienticon: %s",
+					   error_local->message);
+			}
 		}
 	}
 
