@@ -180,10 +180,12 @@ gs_plugin_refine_app (GsPlugin *plugin, GsApp *app, GError **error)
 		memcpy (found, ".png", 4);
 
 	/* create runtime dir and download */
-	if (!gs_mkdir_parent (fn, error))
-		return FALSE;
-	if (!gs_plugin_icons_download (plugin, as_icon_get_url (ic), fn, error))
-		return FALSE;
+	if (!g_file_test (fn, G_FILE_TEST_EXISTS)) {
+		if (!gs_mkdir_parent (fn, error))
+			return FALSE;
+		if (!gs_plugin_icons_download (plugin, as_icon_get_url (ic), fn, error))
+			return FALSE;
+	}
 	as_icon_set_kind (ic, AS_ICON_KIND_LOCAL);
 	return gs_app_load_icon (app, plugin->scale, error);
 }
