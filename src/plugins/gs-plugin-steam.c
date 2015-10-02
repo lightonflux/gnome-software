@@ -954,3 +954,23 @@ gs_plugin_app_remove (GsPlugin *plugin, GsApp *app,
 	cmdline = g_strdup_printf ("steam steam://uninstall/%s", gameid);
 	return g_spawn_command_line_sync (cmdline, NULL, NULL, NULL, error);
 }
+
+/**
+ * gs_plugin_app_launch:
+ */
+gboolean
+gs_plugin_app_launch (GsPlugin *plugin, GsApp *app,
+		      GCancellable *cancellable, GError **error)
+{
+	const gchar *gameid;
+	g_autofree gchar *cmdline = NULL;
+
+	/* check is us */
+	gameid = gs_app_get_metadata_item (app, "X-Steam-GameID");
+	if (gameid == NULL)
+		return TRUE;
+
+	/* this is async as steam is a different process: FIXME: use D-Bus */
+	cmdline = g_strdup_printf ("steam steam://run/%s", gameid);
+	return g_spawn_command_line_sync (cmdline, NULL, NULL, NULL, error);
+}

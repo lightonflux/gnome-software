@@ -1126,31 +1126,34 @@ gs_shell_details_addon_selected_cb (GsAppAddonRow *row,
 }
 
 /**
+ * gs_shell_details_app_launch_cb:
+ **/
+static void
+gs_shell_details_app_launch_cb (GObject *source,
+				GAsyncResult *res,
+				gpointer user_data)
+{
+	GsPluginLoader *plugin_loader = GS_PLUGIN_LOADER (source);
+	GsShellDetails *self = GS_SHELL_DETAILS (user_data);
+	g_autoptr(GError) error = NULL;
+
+	if (!gs_plugin_loader_app_action_finish (plugin_loader, res, &error)) {
+		g_warning ("failed to launch %s: %s",
+			   gs_app_get_id (self->app), error->message);
+	}
+}
+
+/**
  * gs_shell_details_app_launch_button_cb:
  **/
 static void
 gs_shell_details_app_launch_button_cb (GtkWidget *widget, GsShellDetails *self)
 {
-	GdkDisplay *display;
-	const gchar *desktop_id;
-	g_autoptr(GError) error = NULL;
-	g_autoptr(GAppInfo) appinfo = NULL;
-	g_autoptr(GAppLaunchContext) context = NULL;
-
-	desktop_id = gs_app_get_id (self->app);
-	if (desktop_id == NULL) {
-		g_warning ("no such desktop file: %s", desktop_id);
-		return;
-	}
-	appinfo = G_APP_INFO (g_desktop_app_info_new (desktop_id));
-	if (appinfo == NULL) {
-		g_warning ("no such desktop file: %s", desktop_id);
-		return;
-	}
-	display = gdk_display_get_default ();
-	context = G_APP_LAUNCH_CONTEXT (gdk_display_get_app_launch_context (display));
-	if (!g_app_info_launch (appinfo, NULL, context, &error))
-		g_warning ("launching %s failed: %s", desktop_id, error->message);
+	gs_plugin_loader_app_action_async (self->plugin_loader, self->app,
+					   GS_PLUGIN_LOADER_ACTION_LAUNCH,
+					   self->cancellable,
+					   gs_shell_details_app_launch_cb,
+					   self);
 }
 
 /**

@@ -30,6 +30,7 @@ plugindir = $(libdir)/gs-plugins-${GS_PLUGIN_API_VERSION}
 plugin_LTLIBRARIES =					\
 	libgs_plugin_steam.la			\
 	libgs_plugin_appstream.la			\
+	libgs_plugin_desktop.la				\
 	libgs_plugin_hardcoded-featured.la		\
 	libgs_plugin_moduleset.la			\
 	libgs_plugin_menu-spec-categories.la		\
@@ -53,6 +54,11 @@ endif
 if HAVE_LIMBA
 plugin_LTLIBRARIES += libgs_plugin_limba.la
 endif
+
+libgs_plugin_desktop_la_SOURCES = gs-plugin-desktop.c
+libgs_plugin_desktop_la_LIBADD = $(GS_PLUGIN_LIBS)
+libgs_plugin_desktop_la_LDFLAGS = -module -avoid-version
+libgs_plugin_desktop_la_CFLAGS = $(GS_PLUGIN_CFLAGS) $(WARN_CFLAGS)
 
 libgs_plugin_dummy_la_SOURCES = gs-plugin-dummy.c
 libgs_plugin_dummy_la_LIBADD = $(GS_PLUGIN_LIBS)

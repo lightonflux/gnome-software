@@ -242,6 +242,10 @@ gboolean	 gs_plugin_app_remove			(GsPlugin	*plugin,
 							 GsApp		*app,
 							 GCancellable	*cancellable,
 							 GError		**error);
+gboolean	 gs_plugin_app_launch			(GsPlugin	*plugin,
+							 GsApp		*app,
+							 GCancellable	*cancellable,
+							 GError		**error);
 gboolean	 gs_plugin_app_set_rating		(GsPlugin	*plugin,
 							 GsApp		*app,
 							 GCancellable	*cancellable,
