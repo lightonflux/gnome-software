@@ -24,6 +24,7 @@
 #include <gs-plugin.h>
 #include <string.h>
 #include <libsoup/soup.h>
+#include <icns.h>
 
 #include "gs-html-utils.h"
 #include "gs-utils.h"
@@ -88,8 +89,12 @@ gs_plugin_setup_networking (GsPlugin *plugin, GError **error)
 /**
  * gs_plugin_steam_html_download:
  */
-static gchar *
-gs_plugin_steam_html_download (GsPlugin *plugin, const gchar *uri, GError **error)
+static gboolean
+gs_plugin_steam_html_download (GsPlugin *plugin,
+			       const gchar *uri,
+			       gchar **data,
+			       gsize *data_len,
+			       GError **error)
 {
 	guint status_code;
 	g_autoptr(GInputStream) stream = NULL;
@@ -102,12 +107,12 @@ gs_plugin_steam_html_download (GsPlugin *plugin, const gchar *uri, GError **erro
 			     GS_PLUGIN_ERROR,
 			     GS_PLUGIN_ERROR_FAILED,
 			     "%s is not a valid URL", uri);
-		return NULL;
+		return FALSE;
 	}
 
 	/* ensure networking is set up */
 	if (!gs_plugin_setup_networking (plugin, error))
-		return NULL;
+		return FALSE;
 
 	/* set sync request */
 	status_code = soup_session_send_message (plugin->priv->session, msg);
@@ -117,11 +122,16 @@ gs_plugin_steam_html_download (GsPlugin *plugin, const gchar *uri, GError **erro
 			     GS_PLUGIN_ERROR_FAILED,
 			     "Failed to download icon %s: %s",
 			     uri, soup_status_get_phrase (status_code));
-		return NULL;
+		return FALSE;
 	}
 
-	/* return raw HTML */
-	return g_strndup (msg->response_body->data, msg->response_body->length);
+	/* return data */
+	if (data != NULL)
+		*data = g_memdup (msg->response_body->data,
+				  msg->response_body->length);
+	if (data_len != NULL)
+		*data_len = msg->response_body->length;
+	return TRUE;
 }
 
 /**
@@ -473,6 +483,135 @@ gs_plugin_steam_update_description (AsApp *app, const gchar *html, GError **erro
 }
 
 /**
+ * gs_plugin_steam_new_pixbuf_from_icns:
+ **/
+static GdkPixbuf *
+gs_plugin_steam_new_pixbuf_from_icns (const gchar *fn, GError **error)
+{
+	GdkPixbuf *pb = NULL;
+	FILE *datafile;
+	guint i;
+	icns_family_t *icon_family = NULL;
+	icns_image_t im;
+	int rc;
+	icns_type_t preference[] = {
+		ICNS_128X128_32BIT_DATA,
+		ICNS_256x256_32BIT_ARGB_DATA,
+		ICNS_48x48_32BIT_DATA,
+		0 };
+
+	/* open file */
+	datafile = fopen (fn, "rb");
+	rc = icns_read_family_from_file (datafile, &icon_family);
+	if (rc != 0) {
+		g_set_error (error, 1, 0, "Failed to read icon %s", fn);
+		return NULL;
+	}
+
+	/* libicns 'helpfully' frees the @arg */
+	im.imageData = NULL;
+
+	/* get the best sized icon */
+	for (i = 0; preference[i] != 0; i++) {
+		rc = icns_get_image32_with_mask_from_family (icon_family,
+							     preference[i],
+							     &im);
+		if (rc == 0) {
+			gchar buf[5];
+			icns_type_str (preference[i], buf);
+			g_debug ("using ICNS %s for %s", buf, fn);
+			break;
+		}
+	}
+	if (im.imageData == NULL) {
+		g_set_error (error, 1, 0, "Failed to get icon %s", fn);
+		return NULL;
+	}
+
+	/* create the pixbuf */
+	pb = gdk_pixbuf_new_from_data (im.imageData,
+				       GDK_COLORSPACE_RGB,
+				       TRUE,
+				       im.imagePixelDepth,
+				       im.imageWidth,
+				       im.imageHeight,
+				       im.imageWidth * im.imageChannels,
+				       NULL, //??
+				       NULL);
+	g_assert (pb != NULL);
+
+	fclose (datafile);
+	return pb;
+}
+
+/**
+ * gs_plugin_steam_download_icns:
+ **/
+static gboolean
+gs_plugin_steam_download_icns (GsPlugin *plugin, AsApp *app, const gchar *uri, GError **error)
+{
+	const gchar *gameid_str;
+	gsize data_len;
+	g_autofree gchar *cache_basename = NULL;
+	g_autofree gchar *cache_fn = NULL;
+	g_autofree gchar *cache_png = NULL;
+	g_autofree gchar *data = NULL;
+	g_autoptr(AsIcon) icon = NULL;
+	g_autoptr(GdkPixbuf) pb = NULL;
+
+	/* download icons from the cdn */
+	gameid_str = as_app_get_metadata_item (app, "X-Steam-GameID");
+	cache_basename = g_strdup_printf ("%s-icons.icns", gameid_str);
+	cache_fn = g_build_filename (g_get_user_cache_dir (),
+				     "gnome-software",
+				     "steam",
+				     cache_basename,
+				     NULL);
+	if (g_file_test (cache_fn, G_FILE_TEST_EXISTS)) {
+		if (!g_file_get_contents (cache_fn, &data, &data_len, error))
+			return FALSE;
+	} else {
+		if (!gs_plugin_steam_html_download (plugin, uri, &data, &data_len, error))
+			return FALSE;
+		if (!gs_mkdir_parent (cache_fn, error))
+			return FALSE;
+		if (!g_file_set_contents (cache_fn, data, data_len, error))
+			return FALSE;
+	}
+
+	/* check the icns file is not just a png/ico/jpg file in disguise */
+	if (memcmp (data + 1, "\x89PNG", 4) == 0 ||
+	    memcmp (data, "\x00\x00\x01\x00", 4) == 0 ||
+	    memcmp (data, "\xff\xd8\xff", 3) == 0) {
+		g_debug ("using fallback for %s\n", cache_fn);
+		pb = gdk_pixbuf_new_from_file (cache_fn, error);
+		if (pb == NULL)
+			return FALSE;
+	} else {
+		pb = gs_plugin_steam_new_pixbuf_from_icns (cache_fn, error);
+		if (pb == NULL)
+			return FALSE;
+	}
+
+	/* save to cache */
+	memcpy (cache_basename + strlen (gameid_str) + 6, ".png\0", 5);
+	cache_png = g_build_filename (g_get_user_cache_dir (),
+				      "gnome-software",
+				      "steam",
+				      cache_basename,
+				      NULL);
+	if (!gdk_pixbuf_save (pb, cache_png, "png", error, NULL))
+		return FALSE;
+
+	/* add an icon */
+	icon = as_icon_new ();
+	as_icon_set_kind (icon, AS_ICON_KIND_LOCAL);
+	as_icon_set_filename (icon, cache_png);
+	as_app_add_icon (app, icon);
+	return TRUE;
+}
+
+/**
  * gs_plugin_steam_update_store_app:
  **/
 static gboolean
@@ -484,6 +623,7 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 	GVariant *tmp;
 	guint32 gameid;
 	gchar *app_id;
+	g_autofree gchar *cache_basename = NULL;
 	g_autofree gchar *cache_fn = NULL;
 	g_autofree gchar *gameid_str = NULL;
 	g_autofree gchar *html = NULL;
@@ -557,17 +697,36 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 			as_app_add_veto (item, "type is %s", kind);
 	}
 
+	/* don't bother saving apps with failures */
+	if (as_app_get_vetos(item)->len > 0)
+		return TRUE;
+
 	/* icons */
-	tmp = g_hash_table_lookup (app, "logo");
+	tmp = g_hash_table_lookup (app, "clienticns");
 	if (tmp != NULL) {
-		AsIcon *icon = NULL;
-		g_autofree gchar *ic_uri = NULL;
-		ic_uri = g_strdup_printf ("http://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/%i/%s.jpg",
-					  gameid, g_variant_get_string (tmp, NULL));
-		icon = as_icon_new ();
-		as_icon_set_kind (icon, AS_ICON_KIND_REMOTE);
-		as_icon_set_url (icon, ic_uri);
-		as_app_add_icon (item, icon);
+		g_autoptr(GError) error_local = NULL;
+		g_autofree gchar *zip_uri = NULL;
+		zip_uri = g_strdup_printf ("https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/%i/%s.icns",
+					   gameid, g_variant_get_string (tmp, NULL));
+		if (!gs_plugin_steam_download_icns (plugin, item, zip_uri, &error_local)) {
+			g_warning ("Failed to parse clienticns: %s",
+				   error_local->message);
+		}
+	}
+
+	/* fall back to a resized logo */
+	if (as_app_get_icons(item)->len == 0) {
+		tmp = g_hash_table_lookup (app, "logo");
+		if (tmp != NULL) {
+			AsIcon *icon = NULL;
+			g_autofree gchar *ic_uri = NULL;
+			ic_uri = g_strdup_printf ("http://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/%i/%s.jpg",
+						  gameid, g_variant_get_string (tmp, NULL));
+			icon = as_icon_new ();
+			as_icon_set_kind (icon, AS_ICON_KIND_REMOTE);
+			as_icon_set_url (icon, ic_uri);
+			as_app_add_icon (item, icon);
+		}
 	}
 
 	/* size */
@@ -585,23 +744,19 @@ gs_plugin_steam_update_store_app (GsPlugin *plugin,
 		}
 	}
 
-	/* don't bother saving apps with failures */
-	if (as_app_get_vetos(item)->len > 0)
-		return TRUE;
-
 	/* download page from the store */
+	cache_basename = g_strdup_printf ("%s.html", gameid_str);
 	cache_fn = g_build_filename (g_get_user_cache_dir (),
 				     "gnome-software",
 				     "steam",
-				     gameid_str,
+				     cache_basename,
 				     NULL);
 	if (g_file_test (cache_fn, G_FILE_TEST_EXISTS)) {
 		if (!g_file_get_contents (cache_fn, &html, NULL, error))
 			return FALSE;
 	} else {
 		uri = g_strdup_printf ("http://store.steampowered.com/app/%s/", gameid_str);
-		html = gs_plugin_steam_html_download (plugin, uri, error);
-		if (html == NULL)
+		if (!gs_plugin_steam_html_download (plugin, uri, &html, NULL, error))
 			return FALSE;
 		if (!gs_mkdir_parent (cache_fn, error))
 			return FALSE;
