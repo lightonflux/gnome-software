@@ -192,7 +192,6 @@ gs_html_utils_parse_description (const gchar *html, GError **error)
 		gs_html_utils_text_cb,
 		NULL,
 		NULL };
-	g_autofree gchar *check = NULL;
 	g_autofree gchar *tmp = NULL;
 	g_autoptr(GString) str = NULL;
 
@@ -239,10 +238,9 @@ gs_html_utils_parse_description (const gchar *html, GError **error)
 	if (!g_markup_parse_context_parse (ctx, str->str, -1, error))
 		return NULL;
 
-	/* verify this is valid AppStream markup */
-	check = as_markup_convert_simple (helper.str->str, error);
-	if (check == NULL)
-		return NULL;
-
-	return g_strdup (helper.str->str);
+	/* return only valid AppStream markup */
+	return as_markup_convert_full (helper.str->str,
+				       AS_MARKUP_CONVERT_FORMAT_APPSTREAM,
+				       AS_MARKUP_CONVERT_FLAG_IGNORE_ERRORS,
+				       error);
 }
