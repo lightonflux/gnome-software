@@ -21,9 +21,11 @@
 
 #include <config.h>
 
+#include <libsoup/soup.h>
 #include <gs-plugin.h>
 
 struct GsPluginPrivate {
+	SoupSession		*session;
 };
 
 /**
@@ -35,6 +37,8 @@ gs_plugin_get_name (void)
 	return "ubuntu-ratings";
 }
 
+#define GS_PLUGIN_UBUNTU_RATINGS_SERVER		"https://reviews.ubuntu.com/reviews"
+
 /**
  * gs_plugin_initialize:
  */
@@ -43,6 +47,13 @@ gs_plugin_initialize (GsPlugin *plugin)
 {
 	/* create private area */
 	plugin->priv = GS_PLUGIN_GET_PRIVATE (GsPluginPrivate);
+
+	/* check that we are running on Fedora */
+	if (!gs_plugin_check_distro_id (plugin, "ubuntu")) {
+		gs_plugin_set_enabled (plugin, FALSE);
+		g_debug ("disabling '%s' as we're not Fedora", plugin->name);
+		return;
+	}
 }
 
 /**
@@ -61,6 +72,8 @@ gs_plugin_get_deps (GsPlugin *plugin)
 void
 gs_plugin_destroy (GsPlugin *plugin)
 {
+	if (plugin->priv->session != NULL)
+		g_object_unref (plugin->priv->session);
 }
 
 /**
@@ -87,6 +100,13 @@ gs_plugin_refine (GsPlugin *plugin,
 {
 	GList *l;
 	GsApp *app;
+
+	/* We only update ratings */
+	if ((flags & GS_PLUGIN_REFINE_FLAGS_REQUIRE_RATING) == 0)
+		return TRUE;
+
+	/* Download records */
+	/* ... */
 
 	for (l = *list; l != NULL; l = l->next) {
 		app = GS_APP (l->data);
