@@ -85,5 +85,16 @@ gs_plugin_refine (GsPlugin *plugin,
 		  GCancellable *cancellable,
 		  GError **error)
 {
-	return FALSE;
+	GList *l;
+	GsApp *app;
+
+	for (l = *list; l != NULL; l = l->next) {
+		app = GS_APP (l->data);
+		if (gs_app_get_id (app) == NULL)
+			continue;
+		if (gs_app_get_rating (app) != -1)
+			continue;
+	}
+
+	return TRUE;
 }
