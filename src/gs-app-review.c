@@ -32,7 +32,7 @@ struct _GsAppReview
 	gint			 rating;
 	gchar			*version;
 	gchar			*reviewer;
-	guint64			 date;  
+	guint64			 date;
 };
 
 enum {
@@ -275,7 +275,7 @@ gs_app_review_class_init (GsAppReviewClass *klass)
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	g_object_class_install_property (object_class, PROP_SUMMARY, pspec);
 
-  	/**
+	/**
 	 * GsApp:text:
 	 */
 	pspec = g_param_spec_string ("text", NULL, NULL,
@@ -283,7 +283,7 @@ gs_app_review_class_init (GsAppReviewClass *klass)
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	g_object_class_install_property (object_class, PROP_TEXT, pspec);
 
-  	/**
+	/**
 	 * GsApp:rating:
 	 */
 	pspec = g_param_spec_int ("rating", NULL, NULL,
@@ -291,7 +291,7 @@ gs_app_review_class_init (GsAppReviewClass *klass)
 				  G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	g_object_class_install_property (object_class, PROP_RATING, pspec);
 
-  	/**
+	/**
 	 * GsApp:version:
 	 */
 	pspec = g_param_spec_string ("version", NULL, NULL,
@@ -299,7 +299,7 @@ gs_app_review_class_init (GsAppReviewClass *klass)
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	g_object_class_install_property (object_class, PROP_VERSION, pspec);
 
-  	/**
+	/**
 	 * GsApp:reviewer:
 	 */
 	pspec = g_param_spec_string ("reviewer", NULL, NULL,
@@ -308,7 +308,7 @@ gs_app_review_class_init (GsAppReviewClass *klass)
 	g_object_class_install_property (object_class, PROP_REVIEWER, pspec);
 
 
-  	/**
+	/**
 	 * GsApp:date:
 	 */
 	pspec = g_param_spec_uint64 ("date", NULL, NULL,
