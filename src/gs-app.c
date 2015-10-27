@@ -2133,7 +2133,7 @@ gs_app_get_property (GObject *object, guint prop_id, GValue *value, GParamSpec *
 		g_value_set_string (value, app->description);
 		break;
 	case PROP_RATING:
-		g_value_set_uint (value, app->rating);
+		g_value_set_int (value, app->rating);
 		break;
 	case PROP_KIND:
 		g_value_set_uint (value, app->kind);
@@ -2350,6 +2350,9 @@ gs_app_class_init (GsAppClass *klass)
 				   G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 	g_object_class_install_property (object_class, PROP_PROGRESS, pspec);
 
+	/**
+	 * GsApp:install-date:
+	 */
 	pspec = g_param_spec_uint64 ("install-date", NULL, NULL,
 				     0, G_MAXUINT64, 0,
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
