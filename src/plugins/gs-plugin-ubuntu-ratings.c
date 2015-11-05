@@ -51,7 +51,7 @@ gs_plugin_initialize (GsPlugin *plugin)
 	/* check that we are running on Fedora */
 	if (!gs_plugin_check_distro_id (plugin, "ubuntu")) {
 		gs_plugin_set_enabled (plugin, FALSE);
-		g_debug ("disabling '%s' as we're not Fedora", plugin->name);
+		g_debug ("disabling '%s' as we're not Ubuntu", plugin->name);
 		return;
 	}
 }
