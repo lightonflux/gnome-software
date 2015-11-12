@@ -21,6 +21,7 @@
 
 #include <config.h>
 
+#include <math.h>
 #include <libsoup/soup.h>
 #include <sqlite3.h>
 #include <json-glib/json-glib.h>
@@ -225,14 +226,15 @@ gs_plugin_ubuntu_review_stats_download (GsPlugin *plugin, GError **error)
 		json_reader_read_element (reader, i);
 		if (json_reader_is_object (reader)) {
 			const gchar *package_name;
-			gdouble rating;
+			gint rating;
 
 			json_reader_read_member (reader, "package_name");
 			package_name = json_reader_get_string_value (reader);
 			json_reader_end_member (reader);
 
 			json_reader_read_member (reader, "ratings_average");
-			rating = g_ascii_strtod (json_reader_get_string_value (reader), NULL);
+			/* convert star ratings *->10, **->30, ***->50, ****->70, *****->90 */
+			rating = round (20 * g_ascii_strtod (json_reader_get_string_value (reader), NULL) - 10);
 			json_reader_end_member (reader);
 		}
 		json_reader_end_element (reader);
